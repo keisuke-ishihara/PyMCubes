@@ -28,7 +28,7 @@ ANALYTICAL    = {
     'area':      4.0 * np.pi,          # 4π R²
     'curvature': 4.0 * np.pi,          # (1/R) · 4πR² = 4π for R=1
 }
-METHODS = ['binary', 'gaussian', 'constrained']
+METHODS = ['binary', 'gaussian']
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +55,9 @@ def build_trimesh(vertices, faces, h):
     if vertices is None or faces is None or len(vertices) == 0 or len(faces) == 0:
         return None
     v_phys = vertices * h - 2.0   # voxel → physical coordinates
-    mesh = trimesh.Trimesh(v_phys, faces, process=True)
+    mesh = trimesh.Trimesh(v_phys, faces, process=False)
+    mesh.merge_vertices()
+    mesh.fix_normals()
     return mesh
 
 

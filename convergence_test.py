@@ -308,9 +308,50 @@ def plot_convergence(results):
         plt.close(fig)
     saved.append(fname)
 
+    # 2×2 overview PNG
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle("Marching Cubes Convergence Study (Unit Sphere)", fontsize=14)
+    for (metric, title, _), ax in zip(metric_specs, axes.flat):
+        _add_convergence_axes(ax, results, metric, title)
+
+    # bar chart in last panel
+    ax_bar = axes[1, 1]
+    colors  = {'binary': '#1f77b4', 'gaussian': '#ff7f0e', 'constrained': '#2ca02c'}
+    metric_labels = [('volume', 'Volume'), ('area', 'Surface Area'),
+                     ('curvature', 'Mean Curv.')]
+    x     = np.arange(len(metric_labels))
+    width = 0.35
+    for i, method in enumerate(METHODS):
+        orders = []
+        for metric, _ in metric_labels:
+            errs  = [row[3] for row in results[method][metric]]
+            order, _ = estimate_convergence_rate(RESOLUTIONS, errs)
+            orders.append(order if np.isfinite(order) else 0.0)
+        bars = ax_bar.bar(x + i * width, orders, width, label=method,
+                          color=colors[method], alpha=0.85, edgecolor='white')
+        for bar, val in zip(bars, orders):
+            if val > 0.05:
+                ax_bar.text(bar.get_x() + bar.get_width() / 2,
+                            bar.get_height() + 0.04, f"{val:.2f}",
+                            ha='center', va='bottom', fontsize=8)
+    ax_bar.axhline(1, color='gray', linestyle='--', linewidth=1.2, label=r'$O(N^{-1})$')
+    ax_bar.axhline(2, color='gray', linestyle=':',  linewidth=1.2, label=r'$O(N^{-2})$')
+    ax_bar.set_xticks(x + width / 2)
+    ax_bar.set_xticklabels([lbl for _, lbl in metric_labels], fontsize=10)
+    ax_bar.set_ylabel("Estimated convergence order", fontsize=10)
+    ax_bar.set_title("Convergence Orders", fontsize=12, fontweight='bold')
+    ax_bar.legend(fontsize=9)
+    ax_bar.grid(True, axis='y', alpha=0.25)
+
+    plt.tight_layout()
+    png_file = "convergence_plot.png"
+    fig.savefig(png_file, dpi=150)
+    plt.close(fig)
+
     print("\nPDFs saved:")
     for f in saved:
         print(f"  {f}")
+    print(f"  {png_file}")
 
 
 # ---------------------------------------------------------------------------

@@ -2,9 +2,16 @@
 Marching Cubes Convergence Study
 =================================
 Tests whether geometric quantities (volume, surface area, integral mean curvature)
-computed from a PyMCubes-extracted mesh converge to known analytical values
+computed from a scikit-image marching_cubes mesh converge to known analytical values
 as voxel resolution increases, and whether Gaussian or constrained smoothing
 improves the convergence rate. A unit sphere is used as the test shape.
+
+The marching cubes step uses skimage.measure.marching_cubes throughout.
+Three smoothing variants are compared:
+  binary     – raw binary mask, isovalue 0.5
+  gaussian   – mcubes.smooth(method='gaussian'), isovalue 0
+  constrained – mcubes.smooth(method='constrained'), isovalue 0
+                (constrained is forced explicitly, bypassing the size gate)
 """
 
 import matplotlib
@@ -15,6 +22,7 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import mcubes
+from skimage.measure import marching_cubes as ski_marching_cubes
 import trimesh
 
 # ---------------------------------------------------------------------------
@@ -28,7 +36,7 @@ ANALYTICAL    = {
     'area':      4.0 * np.pi,          # 4π R²
     'curvature': 4.0 * np.pi,          # (1/R) · 4πR² = 4π for R=1
 }
-METHODS = ['binary', 'gaussian']
+METHODS = ['binary', 'gaussian', 'constrained']
 
 
 # ---------------------------------------------------------------------------
@@ -102,13 +110,14 @@ def run_convergence_test():
             t0 = time.perf_counter()
             try:
                 if method == 'binary':
-                    vertices, faces = mcubes.marching_cubes(mask.astype(np.float64), 0.5)
+                    vertices, faces, _, _ = ski_marching_cubes(
+                        mask.astype(np.float64), level=0.5)
                 elif method == 'gaussian':
                     smoothed = mcubes.smooth(mask, method='gaussian', sigma=3)
-                    vertices, faces = mcubes.marching_cubes(smoothed, 0)
-                else:  # constrained
+                    vertices, faces, _, _ = ski_marching_cubes(smoothed, level=0)
+                else:  # constrained — explicitly bypass the size gate
                     smoothed = mcubes.smooth(mask, method='constrained')
-                    vertices, faces = mcubes.marching_cubes(smoothed, 0)
+                    vertices, faces, _, _ = ski_marching_cubes(smoothed, level=0)
 
                 mesh = build_trimesh(vertices, faces, h)
 
@@ -296,7 +305,7 @@ def plot_convergence(results):
 
         ax.axhline(1, color='gray', linestyle='--', linewidth=1.2, label=r'$O(N^{-1})$')
         ax.axhline(2, color='gray', linestyle=':',  linewidth=1.2, label=r'$O(N^{-2})$')
-        ax.set_xticks(x + width)
+        ax.set_xticks(x + (len(METHODS) - 1) / 2 * width)
         ax.set_xticklabels([lbl for _, lbl in metric_labels], fontsize=11)
         ax.set_ylabel("Estimated convergence order", fontsize=11)
         ax.set_title("Convergence Orders by Method and Metric", fontsize=13,
@@ -320,7 +329,7 @@ def plot_convergence(results):
     metric_labels = [('volume', 'Volume'), ('area', 'Surface Area'),
                      ('curvature', 'Mean Curv.')]
     x     = np.arange(len(metric_labels))
-    width = 0.35
+    width = 0.27
     for i, method in enumerate(METHODS):
         orders = []
         for metric, _ in metric_labels:
@@ -336,7 +345,7 @@ def plot_convergence(results):
                             ha='center', va='bottom', fontsize=8)
     ax_bar.axhline(1, color='gray', linestyle='--', linewidth=1.2, label=r'$O(N^{-1})$')
     ax_bar.axhline(2, color='gray', linestyle=':',  linewidth=1.2, label=r'$O(N^{-2})$')
-    ax_bar.set_xticks(x + width / 2)
+    ax_bar.set_xticks(x + (len(METHODS) - 1) / 2 * width)
     ax_bar.set_xticklabels([lbl for _, lbl in metric_labels], fontsize=10)
     ax_bar.set_ylabel("Estimated convergence order", fontsize=10)
     ax_bar.set_title("Convergence Orders", fontsize=12, fontweight='bold')

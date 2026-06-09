@@ -23,7 +23,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import mcubes
 from skimage.measure import marching_cubes as ski_marching_cubes
-import trimesh
+import pykarambola as pk
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -52,40 +52,48 @@ def make_binary_sphere(N):
 
 
 # ---------------------------------------------------------------------------
-# 2. Build trimesh from PyMCubes output
+# 2. Scale voxel-space vertices to physical coordinates
 # ---------------------------------------------------------------------------
-def build_trimesh(vertices, faces, h):
-    """Scale voxel-space vertices to physical space and return trimesh.Trimesh.
-
-    process=True repairs face winding so that mesh.volume is correct.
-    Returns None if vertices/faces are empty.
-    """
+def scale_to_physical(vertices, faces, h):
+    """Return (v_phys float64, faces int64), or (None, None) if empty."""
     if vertices is None or faces is None or len(vertices) == 0 or len(faces) == 0:
-        return None
-    v_phys = vertices * h - 2.0   # voxel → physical coordinates
-    mesh = trimesh.Trimesh(v_phys, faces, process=False)
-    mesh.merge_vertices()
-    mesh.fix_normals()
-    return mesh
+        return None, None
+    v_phys = (vertices * h - 2.0).astype(np.float64)
+    return v_phys, faces.astype(np.int64)
 
 
 # ---------------------------------------------------------------------------
-# 3. Extract geometric properties
+# 3. Extract geometric properties via pykarambola Minkowski functionals
 # ---------------------------------------------------------------------------
-def get_properties(mesh, method, N):
-    """Return (volume, area, integral_mean_curvature).
+def get_properties(v_phys, faces, method, N):
+    """Return (volume, area, integral_mean_curvature) using pykarambola.
 
-    Warns if the mesh is not watertight (affects volume/curvature accuracy).
+    w000 = volume, w100 = surface area, w200 = integral mean curvature.
+    Negative volume signals inward normals; both volume and curvature are
+    negated in that case so the returned values are always positive.
     """
-    if not mesh.is_watertight:
-        warnings.warn(
-            f"[N={N}, method={method}] Mesh is not watertight; "
-            "volume/curvature may be inaccurate."
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = pk.minkowski_tensors(
+            v_phys, faces,
+            compute=['w000', 'w100', 'w200'],
+            compute_eigensystems=False,
         )
-    volume    = abs(mesh.volume)
-    area      = mesh.area
-    curvature = abs(mesh.integral_mean_curvature)
-    return volume, area, curvature
+    for w in caught:
+        warnings.warn(f"[N={N}, method={method}] {w.message}")
+
+    volume    = float(result['w000'])
+    area      = float(result['w100']) * 3.0   # w100 = A/3
+    curvature = float(result['w200']) * 3.0   # w200 = M/3
+
+    # inward normals → flip sign of both volume-dependent quantities
+    if np.isfinite(volume) and volume < 0:
+        volume    = -volume
+        curvature = -curvature
+
+    return (volume    if np.isfinite(volume)    else np.nan,
+            area,
+            curvature if np.isfinite(curvature) else np.nan)
 
 
 # ---------------------------------------------------------------------------
@@ -119,12 +127,12 @@ def run_convergence_test():
                     smoothed = mcubes.smooth(mask, method='constrained')
                     vertices, faces, _, _ = ski_marching_cubes(smoothed, level=0)
 
-                mesh = build_trimesh(vertices, faces, h)
+                v_phys, faces_i64 = scale_to_physical(vertices, faces, h)
 
-                if mesh is None:
+                if v_phys is None:
                     raise ValueError("Empty mesh returned by marching_cubes")
 
-                vol, area, curv = get_properties(mesh, method, N)
+                vol, area, curv = get_properties(v_phys, faces_i64, method, N)
 
             except Exception as exc:
                 warnings.warn(f"[N={N}, method={method}] Failed: {exc}")
